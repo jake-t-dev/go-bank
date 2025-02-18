@@ -67,7 +67,11 @@ func (s *PostgresStorage) CreateAccount(account *Account) error {
 }
 
 func (s *PostgresStorage) DeleteAccount(id int) error {
-	return nil
+	_, err := s.db.Query(`
+		DELETE FROM accounts 
+		WHERE id = $1
+	`, id)
+	return err
 }
 
 func (s *PostgresStorage) UpdateAccount(account *Account) error {
@@ -75,7 +79,20 @@ func (s *PostgresStorage) UpdateAccount(account *Account) error {
 }
 
 func (s *PostgresStorage) GetAccountById(id int) (*Account, error) {
-	return nil, nil
+	rows, err := s.db.Query(`
+		SELECT *
+		FROM accounts
+		WHERE id = $1
+	`, id)
+
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		return scanIntoAccount(rows)
+	}
+
+	return nil, fmt.Errorf("account not found")
 }
 
 func (s *PostgresStorage) GetAccounts() ([]*Account, error) {
@@ -90,12 +107,19 @@ func (s *PostgresStorage) GetAccounts() ([]*Account, error) {
 	accounts := []*Account{}
 
 	for rows.Next() {
-		account := new(Account)
-		if err := rows.Scan(&account.ID, &account.FirstName, &account.LastName, &account.Number, &account.Balance, &account.CreatedAt); err != nil {
+		account, err := scanIntoAccount(rows)
+		if err != nil {
 			return nil, err
 		}
 		accounts = append(accounts, account)
 	}
 
 	return accounts, nil
+}
+
+func scanIntoAccount(rows *sql.Rows) (*Account, error) {
+	account := new(Account)
+	err := rows.Scan(&account.ID, &account.FirstName, &account.LastName, &account.Number, &account.Balance, &account.CreatedAt)
+
+	return account, err
 }
