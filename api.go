@@ -9,39 +9,23 @@ import (
 	"github.com/gorilla/mux"
 )
 
-func WriteJSON(w http.ResponseWriter, status int, v any) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	return json.NewEncoder(w).Encode(v)
-}
-
-type apiFunc func(w http.ResponseWriter, r *http.Request) error
-
-type ApiError struct {
-	Error string `json:"error"`
-}
-
-func makeHttpHandler(f apiFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := f(w, r); err != nil {
-			WriteJSON(w, http.StatusInternalServerError, ApiError{Error: err.Error()})
-		}
-	}
-}
-
 type APIServer struct {
 	listenAddr string
+	store      Storage
 }
 
-func NewAPIServer(listenAddr string) *APIServer {
-	return &APIServer{listenAddr: listenAddr}
+func NewAPIServer(listenAddr string, store Storage) *APIServer {
+	return &APIServer{
+		listenAddr: listenAddr,
+		store:      store,
+	}
 }
 
 func (s *APIServer) Run() {
 	router := mux.NewRouter()
 
 	router.HandleFunc("/account", makeHttpHandler(s.handleAccounts)).Methods("GET", "POST", "DELETE")
-	router.HandleFunc("/account/{id}", makeHttpHandler(s.handleGetAccount)).Methods("GET")
+	router.HandleFunc("/account/{id}", makeHttpHandler(s.handleGetAccountById)).Methods("GET")
 
 	log.Println("Starting API server on", s.listenAddr)
 	http.ListenAndServe(s.listenAddr, router)
@@ -51,6 +35,7 @@ func (s *APIServer) handleAccounts(w http.ResponseWriter, r *http.Request) error
 	switch r.Method {
 	case "GET":
 		return s.handleGetAccount(w, r)
+
 	case "POST":
 		return s.handleCreateAccount(w, r)
 	case "DELETE":
@@ -61,6 +46,15 @@ func (s *APIServer) handleAccounts(w http.ResponseWriter, r *http.Request) error
 }
 
 func (s *APIServer) handleGetAccount(w http.ResponseWriter, r *http.Request) error {
+	accounts, err := s.store.GetAccounts()
+	if err != nil {
+		return err
+	}
+
+	return WriteJSON(w, http.StatusOK, accounts)
+}
+
+func (s *APIServer) handleGetAccountById(w http.ResponseWriter, r *http.Request) error {
 	//vars := mux.Vars(r)["id"]
 
 	//account := NewAccount("1", "John", "Doe", 123456, 1000)
@@ -68,7 +62,17 @@ func (s *APIServer) handleGetAccount(w http.ResponseWriter, r *http.Request) err
 }
 
 func (s *APIServer) handleCreateAccount(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	createAccountRequest := new(CreateAccountRequest)
+	if err := json.NewDecoder(r.Body).Decode(createAccountRequest); err != nil {
+		return err
+	}
+
+	account := NewAccount(createAccountRequest.FirstName, createAccountRequest.LastName)
+	if err := s.store.CreateAccount(account); err != nil {
+		return err
+	}
+
+	return WriteJSON(w, http.StatusCreated, account)
 }
 
 func (s *APIServer) handleDeleteAccount(w http.ResponseWriter, r *http.Request) error {
